@@ -1,0 +1,11 @@
+# Build and Visual Studio files
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.DS_Store
+.idea/
+.vs/
+wwwroot/node_modules/

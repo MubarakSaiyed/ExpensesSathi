@@ -1,0 +1,681 @@
+@page "/transactions"
+@using ExpensesSathi.Services
+@using ExpensesSathi.Models
+@inject TransactionService TransactionService
+@implements IDisposable
+
+<div class="transaction-wrapper">
+    <!-- Header Section -->
+    <div class="header-section">
+        <div class="header-title">
+            <svg class="title-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"></path>
+            </svg>
+            <h1>Transaction History</h1>
+        </div>
+        <button @onclick="OpenAddTransaction" class="add-btn">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 5v14m7-7H5"></path>
+            </svg>
+            Add Transaction
+        </button>
+    </div>
+
+    <!-- Filter Area -->
+    <div class="filter-area">
+        <div class="filter-item">
+            <label>Amount Range</label>
+            <div class="range-inputs">
+                <input type="number" @bind="MinAmount" placeholder="Min" @oninput="ApplyFilters" />
+                <input type="number" @bind="MaxAmount" placeholder="Max" @oninput="ApplyFilters" />
+            </div>
+        </div>
+        <div class="filter-item">
+            <label>Type</label>
+            <select @bind="TypeFilter" @bind:after="ApplyFilters">
+                <option value="">All</option>
+                <option value="credit">Credit</option>
+                <option value="debit">Debit</option>
+            </select>
+        </div>
+        <div class="filter-item">
+            <label>Date</label>
+            <input type="date" @bind="DateFilter" @bind:after="ApplyFilters" />
+        </div>
+        <div class="filter-item">
+            <label>Search</label>
+            <div class="search-box">
+                <input type="text" @bind="SearchTerm" @oninput="ApplyFilters" placeholder="Search..." />
+                <svg class="search-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+            </div>
+        </div>
+    </div>
+
+    <!-- Transaction List -->
+    <div class="transaction-list">
+        @if (FilteredTransactions.Any())
+        {
+            @foreach (var trans in FilteredTransactions)
+            {
+                <div class="trans-card @(trans.Type == "credit" ? "credit" : "debit")">
+                    <div class="trans-details">
+                        <div class="trans-header">
+                            <span class="trans-date">@trans.Date.ToString("MMM dd, yyyy")</span>
+                            <span class="trans-type @trans.Type">@trans.Type.ToUpper()</span>
+                            <span class="trans-status @trans.Status.ToLower()">@trans.Status</span>
+                        </div>
+                        <span class="trans-desc">@trans.Description</span>
+                        @if (!string.IsNullOrWhiteSpace(trans.Notes))
+                        {
+                            <span class="trans-notes">Notes: @trans.Notes</span>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(trans.Tags))
+                        {
+                            <span class="trans-tags">Tags: @trans.Tags</span>
+                        }
+                    </div>
+                    <div class="trans-amount">@(trans.Type == "credit" ? "+" : "-")@trans.Amount.ToString("C")</div>
+                    <div class="trans-actions">
+                        <button @onclick="() => EditTransaction(trans)" class="action-btn">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                            </svg>
+                            Edit
+                        </button>
+                        <button @onclick="() => DeleteTransaction(trans)" class="action-btn delete">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                            </svg>
+                            Delete
+                        </button>
+                    </div>
+                </div>
+            }
+        }
+        else
+        {
+            <div class="no-transactions">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="8" x2="12" y2="12"></line>
+                    <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                </svg>
+                <p>No transactions available</p>
+            </div>
+        }
+    </div>
+
+    <!-- Modal for Add/Edit -->
+    @if (ShowModal)
+    {
+        <div class="modal-overlay">
+            <div class="modal-content">
+                <button @onclick="CloseModal" class="close-btn">&times;</button>
+                <div class="modal-header">
+                    <h2>@(IsEditing ? "Edit Transaction" : "Add Transaction")</h2>
+                </div>
+                <form @onsubmit="SaveTransaction" @onsubmit:preventDefault="true" class="modal-form">
+                    <div class="form-field">
+                        <label>Amount</label>
+                        <input type="number" @bind="CurrentTransaction.Amount" required />
+                    </div>
+                    <div class="form-field">
+                        <label>Date</label>
+                        <input type="date" @bind="CurrentTransaction.Date" @bind:format="yyyy-MM-dd" required />
+                    </div>
+                    <div class="form-field">
+                        <label>Type</label>
+                        <select @bind="CurrentTransaction.Type" required>
+                            <option value="">Select Type</option>
+                            <option value="credit">Credit</option>
+                            <option value="debit">Debit</option>
+                        </select>
+                    </div>
+                    <div class="form-field">
+                        <label>Description</label>
+                        <input type="text" @bind="CurrentTransaction.Description" />
+                    </div>
+                    <div class="form-field">
+                        <label>Notes</label>
+                        <textarea @bind="CurrentTransaction.Notes"></textarea>
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" @onclick="CloseModal" class="cancel-btn">Cancel</button>
+                        <button type="submit" class="save-btn">Save</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<ExpensesSathi.Models.Transaction> Transactions { get; set; } = new();
+    private List<ExpensesSathi.Models.Transaction> FilteredTransactions { get; set; } = new();
+    private decimal? MinAmount { get; set; }
+    private decimal? MaxAmount { get; set; }
+    private string TypeFilter { get; set; } = "";
+    private DateTime? DateFilter { get; set; }
+    private string SearchTerm { get; set; } = "";
+    private bool ShowModal { get; set; } = false;
+    private bool IsEditing { get; set; } = false;
+    private ExpensesSathi.Models.Transaction CurrentTransaction { get; set; } = new();
+
+    protected override void OnInitialized()
+    {
+        Transactions = TransactionService.GetAllTransactions();
+        FilteredTransactions = Transactions.ToList();
+        TransactionService.OnChange += StateHasChanged;
+    }
+
+    private void ApplyFilters()
+    {
+        FilteredTransactions = Transactions
+            .Where(t => (!MinAmount.HasValue || t.Amount >= MinAmount) &&
+                        (!MaxAmount.HasValue || t.Amount <= MaxAmount) &&
+                        (string.IsNullOrWhiteSpace(TypeFilter) || t.Type == TypeFilter) &&
+                        (!DateFilter.HasValue || t.Date.Date == DateFilter.Value.Date) &&
+                        (string.IsNullOrWhiteSpace(SearchTerm) || t.Description?.Contains(SearchTerm, StringComparison.OrdinalIgnoreCase) == true))
+            .ToList();
+    }
+
+    private void OpenAddTransaction()
+    {
+        IsEditing = false;
+        CurrentTransaction = new ExpensesSathi.Models.Transaction 
+        { 
+            Date = DateTime.Today,
+            Type = "debit",
+            Description = "",
+            Notes = "",
+            Status = "Pending",
+            Amount = 0
+        };
+        ShowModal = true;
+    }
+
+    private void EditTransaction(ExpensesSathi.Models.Transaction trans)
+    {
+        IsEditing = true;
+        CurrentTransaction = new ExpensesSathi.Models.Transaction
+        {
+            Id = trans.Id,
+            Amount = trans.Amount,
+            Date = trans.Date,
+            Type = trans.Type,
+            Description = trans.Description,
+            Notes = trans.Notes
+        };
+        ShowModal = true;
+    }
+
+    private void SaveTransaction()
+    {
+        try
+        {
+            // Validate required fields
+            if (CurrentTransaction.Amount <= 0)
+            {
+                Console.WriteLine("Error: Amount must be greater than 0");
+                return;
+            }
+            
+            if (string.IsNullOrWhiteSpace(CurrentTransaction.Type))
+            {
+                Console.WriteLine("Error: Type is required");
+                return;
+            }
+            
+            Console.WriteLine($"Saving transaction: Amount={CurrentTransaction.Amount}, Type={CurrentTransaction.Type}, Date={CurrentTransaction.Date}");
+            
+            if (IsEditing)
+            {
+                TransactionService.UpdateTransaction(CurrentTransaction);
+            }
+            else
+            {
+                // Assign a new ID for new transactions
+                CurrentTransaction.Id = Transactions.Count > 0 ? Transactions.Max(t => t.Id) + 1 : 1;
+                Console.WriteLine($"Adding new transaction with ID: {CurrentTransaction.Id}");
+                TransactionService.AddTransaction(CurrentTransaction);
+            }
+            
+            Transactions = TransactionService.GetAllTransactions();
+            Console.WriteLine($"Total transactions after save: {Transactions.Count}");
+            ApplyFilters();
+            CloseModal();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error saving transaction: {ex.Message}");
+        }
+    }
+
+    private void DeleteTransaction(ExpensesSathi.Models.Transaction trans)
+    {
+        TransactionService.DeleteTransaction(trans);
+        Transactions = TransactionService.GetAllTransactions();
+        ApplyFilters();
+    }
+
+    private void CloseModal()
+    {
+        ShowModal = false;
+    }
+
+    public void Dispose()
+    {
+        TransactionService.OnChange -= StateHasChanged;
+    }
+}
+
+<style>
+    /* Base Styles */
+    :root {
+        --primary-color: #6366f1;
+        --primary-light: #818cf8;
+        --primary-dark: #4f46e5;
+        --text-color: #f8fafc;
+        --text-secondary: #94a3b8;
+        --glass-bg: rgba(255, 255, 255, 0.1);
+        --glass-border: rgba(255, 255, 255, 0.2);
+        --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        --success-color: #10b981;
+        --error-color: #ef4444;
+    }
+
+    .transaction-wrapper {
+        padding: 24px;
+        background: linear-gradient(135deg, #1e293b, #0f172a);
+        min-height: calc(100vh - 70px);
+        position: relative;
+    }
+
+    /* Header Section */
+    .header-section {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+    }
+
+    .header-title {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .title-icon {
+        width: 24px;
+        height: 24px;
+        stroke: var(--primary-light);
+    }
+
+    h1 {
+        font-size: 24px;
+        color: var(--text-color);
+        font-weight: 600;
+    }
+
+    .add-btn {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        background: var(--glass-bg);
+        border: 1px solid var(--glass-border);
+        border-radius: 6px;
+        padding: 8px 12px;
+        color: var(--text-color);
+        cursor: pointer;
+        transition: all 0.3s;
+    }
+
+    .add-btn:hover {
+        background: rgba(255, 255, 255, 0.15);
+        transform: translateY(-2px);
+    }
+
+    .add-btn svg {
+        width: 16px;
+        height: 16px;
+    }
+
+    /* Filter Area */
+    .filter-area {
+        display: flex;
+        gap: 15px;
+        margin-bottom: 20px;
+    }
+
+    .filter-item {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+    }
+
+    .filter-item label {
+        color: var(--text-secondary);
+        font-size: 14px;
+    }
+
+    .range-inputs {
+        display: flex;
+        gap: 10px;
+    }
+
+    .range-inputs input {
+        padding: 8px;
+        border: 1px solid var(--glass-border);
+        border-radius: 6px;
+        background: var(--glass-bg);
+        color: var(--text-color);
+    }
+
+    .filter-item select, .filter-item input[type="date"] {
+        padding: 8px;
+        border: 1px solid var(--glass-border);
+        border-radius: 6px;
+        background: var(--glass-bg);
+        color: var(--text-color);
+    }
+
+    .search-box {
+        position: relative;
+    }
+
+    .search-box input {
+        width: 100%;
+        padding: 8px 12px 8px 30px;
+        border: 1px solid var(--glass-border);
+        border-radius: 6px;
+        background: var(--glass-bg);
+        color: var(--text-color);
+    }
+
+    .search-icon {
+        position: absolute;
+        left: 8px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 16px;
+        height: 16px;
+    }
+
+    /* Transaction List */
+    .transaction-list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .trans-card {
+        display: grid;
+        grid-template-columns: 2fr 1fr 1fr;
+        background: var(--glass-bg);
+        border: 1px solid var(--glass-border);
+        border-radius: 8px;
+        padding: 12px;
+        transition: transform 0.3s;
+    }
+
+    .trans-card.credit {
+        background: rgba(16, 185, 129, 0.1);
+    }
+
+    .trans-card.debit {
+        background: rgba(239, 68, 68, 0.1);
+    }
+
+    .trans-card:hover {
+        transform: translateY(-3px);
+    }
+
+    .trans-details {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .trans-header {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 4px;
+    }
+
+    .trans-date {
+        font-size: 12px;
+        color: var(--text-color);
+        opacity: 0.8;
+    }
+
+    .trans-type {
+        font-size: 10px;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+
+    .trans-type.credit {
+        background: rgba(16, 185, 129, 0.2);
+        color: #10b981;
+    }
+
+    .trans-type.debit {
+        background: rgba(239, 68, 68, 0.2);
+        color: #ef4444;
+    }
+
+    .trans-status {
+        font-size: 10px;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-weight: 500;
+    }
+
+    .trans-status.pending {
+        background: rgba(251, 191, 36, 0.2);
+        color: #fbbf24;
+    }
+
+    .trans-status.cleared {
+        background: rgba(16, 185, 129, 0.2);
+        color: #10b981;
+    }
+
+    .trans-desc {
+        font-size: 14px;
+        color: var(--text-color);
+        font-weight: 500;
+    }
+
+    .trans-notes, .trans-tags {
+        font-size: 12px;
+        color: var(--text-color);
+        opacity: 0.7;
+        font-style: italic;
+    }
+
+    .trans-amount {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--text-color);
+        text-align: right;
+    }
+
+    .trans-actions {
+        display: flex;
+        gap: 8px;
+        justify-content: flex-end;
+    }
+
+    .action-btn {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        background: var(--glass-bg);
+        border: 1px solid var(--glass-border);
+        border-radius: 4px;
+        padding: 6px 10px;
+        color: var(--text-color);
+        cursor: pointer;
+        transition: all 0.3s;
+    }
+
+    .action-btn:hover {
+        background: rgba(255, 255, 255, 0.15);
+    }
+
+    .action-btn.delete {
+        background: rgba(239, 68, 68, 0.1);
+        color: var(--error-color);
+    }
+
+    .action-btn.delete:hover {
+        background: rgba(239, 68, 68, 0.2);
+    }
+
+    .action-btn svg {
+        width: 14px;
+        height: 14px;
+    }
+
+    .no-transactions {
+        text-align: center;
+        padding: 20px;
+        color: var(--text-secondary);
+    }
+
+    .no-transactions svg {
+        width: 40px;
+        height: 40px;
+    }
+
+    .no-transactions p {
+        margin-top: 10px;
+    }
+
+    /* Modal */
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+    }
+
+    .modal-content {
+        background: var(--glass-bg);
+        border: 1px solid var(--glass-border);
+        border-radius: 10px;
+        padding: 20px;
+        width: 90%;
+        max-width: 400px;
+        position: relative;
+    }
+
+    .close-btn {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        border: none;
+        background: none;
+        color: var(--text-color);
+        font-size: 20px;
+        cursor: pointer;
+    }
+
+    .modal-header h2 {
+        color: var(--text-color);
+        font-size: 18px;
+        margin-bottom: 15px;
+    }
+
+    .modal-form {
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+    }
+
+    .form-field {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+    }
+
+    .form-field label {
+        color: var(--text-secondary);
+        font-size: 14px;
+    }
+
+    .form-field input, .form-field select, .form-field textarea {
+        padding: 8px;
+        border: 1px solid var(--glass-border);
+        border-radius: 6px;
+        background: rgba(255, 255, 255, 0.05);
+        color: var(--text-color);
+    }
+
+    .form-field textarea {
+        min-height: 80px;
+    }
+
+    .form-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+    }
+
+    .cancel-btn, .save-btn {
+        padding: 8px 15px;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+    }
+
+    .cancel-btn {
+        background: rgba(239, 68, 68, 0.1);
+        color: var(--error-color);
+    }
+
+    .save-btn {
+        background: rgba(16, 185, 129, 0.1);
+        color: var(--success-color);
+    }
+
+    /* Responsive */
+    @@media (max-width: 768px) {
+    .transaction-wrapper {
+        margin-left: 0;
+        padding: 15px;
+    }
+
+    .header-section {
+        flex-direction: column;
+        gap: 15px;
+    }
+
+    .filter-area {
+        flex-direction: column;
+    }
+
+    .trans-card {
+        grid-template-columns: 2fr 1fr;
+    }
+
+    .trans-actions {
+        grid-column: span 2;
+        justify-content: flex-start;
+    }
+    }
+</style>
